@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a macOS .icns file from a square PNG without external packages."""
+"""Build a macOS .icns file from a square PNG."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ import tempfile
 from pathlib import Path
 
 
+# The legacy 1x small-icon elements require packed bitmap data, not PNG bytes.
+# Supplying PNG data under those element codes makes non-Retina Finder decode
+# the compressed bytes as pixels. Omit those elements so Icon Services scales
+# a valid representation, while retaining native Retina small-icon elements.
 ICON_TYPES = (
-    ("icp4", 16),
-    ("icp5", 32),
-    ("icp6", 64),
     ("ic07", 128),
     ("ic08", 256),
     ("ic09", 512),

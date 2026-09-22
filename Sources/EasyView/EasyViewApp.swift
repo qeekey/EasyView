@@ -94,8 +94,7 @@ struct EasyViewApp: App {
                     .keyboardShortcut(.downArrow, modifiers: [])
                 Divider()
                 Button("预览选中图片") {
-                    guard library.selectedItem != nil else { return }
-                    library.isViewerPresented = true
+                    library.openSelectedItem()
                 }
                     .keyboardShortcut(.space, modifiers: [])
                 Button("显示简介") { library.showsInspector.toggle() }
@@ -111,7 +110,7 @@ struct EasyViewApp: App {
                     Text("5 秒").tag(5.0)
                 }
                 Divider()
-                Toggle("递归显示子目录", isOn: $library.recursivelyShowsSubdirectories)
+                Toggle("显示子目录", isOn: $library.showsSubdirectories)
             }
         }
     }

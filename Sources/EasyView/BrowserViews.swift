@@ -43,7 +43,7 @@ struct SidebarView: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Image(systemName: "photo")
-                Text("\(library.filteredItems.count) 张图片")
+                Text("\(library.filteredItems.count) 个项目")
                 Spacer()
             }
             .font(.caption)
@@ -109,11 +109,10 @@ struct ThumbnailGridView: View {
                             ForEach(library.filteredItems) { item in
                                 ThumbnailCell(item: item, size: library.thumbnailSize)
                                     .onTapGesture(count: 2) {
-                                        library.selectedURL = item.url
-                                        library.isViewerPresented = true
+                                        library.open(item)
                                     }
                                     .onTapGesture {
-                                        library.selectedURL = item.url
+                                        library.select(item)
                                     }
                             }
                         }
@@ -164,7 +163,7 @@ struct ThumbnailGridView: View {
                 onSpace: {
                     // The viewer has its own Space handler for next image.
                     guard !library.isViewerPresented, library.selectedItem != nil else { return false }
-                    library.isViewerPresented = true
+                    library.openSelectedItem()
                     return true
                 }
             )
@@ -178,7 +177,7 @@ struct ThumbnailGridView: View {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.secondary)
-            Text(library.items.isEmpty ? "这里还没有图片" : "没有匹配的图片")
+            Text(library.items.isEmpty ? "这里还没有内容" : "没有匹配的项目")
                 .font(.title3.weight(.medium))
             Text(library.items.isEmpty ? "打开文件夹，或把图片拖到窗口中" : "试试其他搜索词")
                 .foregroundStyle(.secondary)
@@ -220,11 +219,10 @@ struct ImageListView: View {
                                     hasAlternateBackground: index.isMultiple(of: 2) == false
                                 )
                                     .onTapGesture(count: 2) {
-                                        library.selectedURL = item.url
-                                        library.isViewerPresented = true
+                                        library.open(item)
                                     }
                                     .onTapGesture {
-                                        library.selectedURL = item.url
+                                        library.select(item)
                                     }
                             }
                         }
@@ -285,7 +283,13 @@ private struct ImageListRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if let image {
+                if item.isDirectory {
+                    Image(systemName: "folder.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(Color.accentColor)
+                        .padding(8)
+                } else if let image {
                     Image(nsImage: image).resizable().scaledToFit()
                 } else {
                     ProgressView().controlSize(.mini)
@@ -316,6 +320,7 @@ private struct ImageListRow: View {
         )
         .contentShape(Rectangle())
         .task(id: item.url) {
+            guard !item.isDirectory else { return }
             image = ThumbnailCache.shared.image(for: item.url, maxPixelSize: 120)
         }
     }
@@ -438,7 +443,11 @@ struct ThumbnailCell: View {
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.black.opacity(isSelected ? 0.09 : 0))
-                if let image {
+                if item.isDirectory {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: max(32, size * 0.32)))
+                        .foregroundStyle(Color.accentColor)
+                } else if let image {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
@@ -458,6 +467,7 @@ struct ThumbnailCell: View {
         }
         .contentShape(Rectangle())
         .task(id: item.url) {
+            guard !item.isDirectory else { return }
             image = ThumbnailCache.shared.image(for: item.url, maxPixelSize: max(size * 2, 320))
         }
     }
@@ -480,9 +490,17 @@ struct InspectorView: View {
             if let item = library.selectedItem {
                 ScrollView {
                     VStack(spacing: 16) {
-                        PreviewImage(url: item.url)
-                            .frame(height: 170)
-                            .padding(.top, 16)
+                        if item.isDirectory {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 80))
+                                .foregroundStyle(Color.accentColor)
+                                .frame(height: 170)
+                                .padding(.top, 16)
+                        } else {
+                            PreviewImage(url: item.url)
+                                .frame(height: 170)
+                                .padding(.top, 16)
+                        }
                         Text(item.name)
                             .font(.headline)
                             .multilineTextAlignment(.center)

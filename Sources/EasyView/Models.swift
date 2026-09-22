@@ -9,18 +9,28 @@ struct ImageItem: Identifiable, Hashable {
     let height: Int
     let fileSize: Int64
     let modifiedAt: Date?
+    let isDirectory: Bool
 
     var id: URL { url }
     var name: String { url.lastPathComponent }
-    var fileExtension: String { url.pathExtension.uppercased() }
+    var fileExtension: String { isDirectory ? "文件夹" : url.pathExtension.uppercased() }
     var dimensionsText: String { width > 0 ? "\(width) × \(height)" : "—" }
-    var sizeText: String { ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file) }
+    var sizeText: String { isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file) }
 
     init(url: URL) {
         self.url = url
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         fileSize = Int64(values?.fileSize ?? 0)
         modifiedAt = values?.contentModificationDate
+        var directory = ObjCBool(false)
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &directory)
+        isDirectory = directory.boolValue
+
+        guard !isDirectory else {
+            width = 0
+            height = 0
+            return
+        }
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
@@ -92,15 +102,22 @@ final class ImageLibrary: ObservableObject {
             if !showsFileNameSearch { searchText = "" }
         }
     }
-    @Published var recursivelyShowsSubdirectories: Bool = UserDefaults.standard.object(forKey: "recursivelyShowsSubdirectories") as? Bool ?? false {
+    @Published var showsSubdirectories: Bool = UserDefaults.standard.object(forKey: "showsSubdirectories") as? Bool
+        ?? UserDefaults.standard.object(forKey: "recursivelyShowsSubdirectories") as? Bool
+        ?? false {
         didSet {
-            UserDefaults.standard.set(recursivelyShowsSubdirectories, forKey: "recursivelyShowsSubdirectories")
+            UserDefaults.standard.set(showsSubdirectories, forKey: "showsSubdirectories")
             reloadCurrentFolder()
         }
     }
 
     private let supportedExtensions = Set(["jpg", "jpeg", "png", "gif", "heic", "heif", "tif", "tiff", "bmp", "webp"])
     private var loadToken = UUID()
+    private var folderHistory: [URL] = []
+    private var folderHistoryIndex = -1
+
+    var canGoBack: Bool { folderHistoryIndex > 0 }
+    var canGoForward: Bool { folderHistoryIndex >= 0 && folderHistoryIndex < folderHistory.count - 1 }
 
     /// Rebuild only when the collection, search text, or sort order changes.
     /// Selecting an image should not make a large folder sort again.
@@ -109,6 +126,7 @@ final class ImageLibrary: ObservableObject {
             $0.name.localizedCaseInsensitiveContains(searchText)
         }
         filteredItems = searched.sorted { first, second in
+            if first.isDirectory != second.isDirectory { return first.isDirectory }
             let lhs = ascending ? first : second
             let rhs = ascending ? second : first
             switch sort {
@@ -164,20 +182,22 @@ final class ImageLibrary: ObservableObject {
     func loadFolder(
         _ url: URL,
         selecting requestedSelection: URL? = nil,
-        presentingViewer: Bool = false
+        presentingViewer: Bool = false,
+        recordingHistory: Bool = true
     ) {
+        if recordingHistory { recordFolderVisit(url) }
         folderURL = url
         isLoading = true
         errorMessage = nil
         let extensions = supportedExtensions
-        let recursively = recursivelyShowsSubdirectories
+        let showsSubdirectories = showsSubdirectories
         let token = UUID()
         loadToken = token
         Task.detached(priority: .userInitiated) {
             do {
-                let urls = try Self.imageURLs(
+                let urls = try Self.folderItems(
                     in: url,
-                    recursively: recursively,
+                    showsSubdirectories: showsSubdirectories,
                     supportedExtensions: extensions
                 )
                 let loaded = urls.map(ImageItem.init)
@@ -216,12 +236,37 @@ final class ImageLibrary: ObservableObject {
 
     private func reloadCurrentFolder() {
         guard let folderURL else { return }
-        loadFolder(folderURL)
+        loadFolder(folderURL, recordingHistory: false)
     }
 
-    nonisolated private static func imageURLs(
+    func goBack() {
+        guard canGoBack else { return }
+        folderHistoryIndex -= 1
+        loadFolder(folderHistory[folderHistoryIndex], recordingHistory: false)
+    }
+
+    func goForward() {
+        guard canGoForward else { return }
+        folderHistoryIndex += 1
+        loadFolder(folderHistory[folderHistoryIndex], recordingHistory: false)
+    }
+
+    private func recordFolderVisit(_ url: URL) {
+        let folder = url.standardizedFileURL
+        if folderHistoryIndex >= 0,
+           folderHistory[folderHistoryIndex].standardizedFileURL == folder {
+            return
+        }
+        if folderHistoryIndex + 1 < folderHistory.count {
+            folderHistory.removeSubrange((folderHistoryIndex + 1)..<folderHistory.count)
+        }
+        folderHistory.append(folder)
+        folderHistoryIndex = folderHistory.count - 1
+    }
+
+    nonisolated private static func folderItems(
         in folder: URL,
-        recursively: Bool,
+        showsSubdirectories: Bool,
         supportedExtensions: Set<String>
     ) throws -> [URL] {
         let resourceKeys: Set<URLResourceKey> = [
@@ -230,27 +275,23 @@ final class ImageLibrary: ObservableObject {
             .contentModificationDateKey
         ]
 
-        if !recursively {
-            return try FileManager.default.contentsOfDirectory(
-                at: folder,
-                includingPropertiesForKeys: Array(resourceKeys),
-                options: [.skipsHiddenFiles]
-            ).filter { supportedExtensions.contains($0.pathExtension.lowercased()) }
-        }
-
-        guard let enumerator = FileManager.default.enumerator(
+        let entries = try FileManager.default.contentsOfDirectory(
             at: folder,
             includingPropertiesForKeys: Array(resourceKeys),
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { _, _ in true }
-        ) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
+            options: [.skipsHiddenFiles]
+        )
 
-        return enumerator.compactMap { $0 as? URL }.filter { url in
-            guard supportedExtensions.contains(url.pathExtension.lowercased()) else { return false }
-            return (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        let folders = showsSubdirectories ? entries.filter { url in
+            var directory = ObjCBool(false)
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &directory)
+            return directory.boolValue
+        } : []
+        let images = entries.filter { url in
+            var directory = ObjCBool(false)
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &directory)
+            return exists && !directory.boolValue && supportedExtensions.contains(url.pathExtension.lowercased())
         }
+        return folders + images
     }
 
     func loadImages(_ urls: [URL]) {
@@ -269,6 +310,28 @@ final class ImageLibrary: ObservableObject {
 
     func selectNext() { moveSelection(by: 1) }
     func selectPrevious() { moveSelection(by: -1) }
+
+    func open(_ item: ImageItem) {
+        selectedURL = item.url
+        if item.isDirectory {
+            loadFolder(item.url)
+        } else {
+            isViewerPresented = true
+        }
+    }
+
+    func openSelectedItem() {
+        guard let selectedItem else { return }
+        open(selectedItem)
+    }
+
+    func select(_ item: ImageItem) {
+        if item.isDirectory {
+            open(item)
+        } else {
+            selectedURL = item.url
+        }
+    }
 
     /// Arrow-key navigation follows the current presentation: list and viewer
     /// use a linear sequence, while the thumbnail grid follows visible cells.
@@ -322,7 +385,7 @@ final class ImageLibrary: ObservableObject {
     }
 
     private func moveSelection(by offset: Int) {
-        let visible = filteredItems
+        let visible = filteredItems.filter { !$0.isDirectory }
         guard !visible.isEmpty else { return }
         let current = visible.firstIndex { $0.url == selectedURL } ?? 0
         selectedURL = visible[(current + offset + visible.count) % visible.count].url

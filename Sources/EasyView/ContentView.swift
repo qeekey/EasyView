@@ -17,7 +17,9 @@ struct ContentView: View {
                 browser
             }
 
-            if library.isViewerPresented, library.selectedItem != nil {
+            if library.isViewerPresented,
+               let selectedItem = library.selectedItem,
+               !selectedItem.isDirectory {
                 ImageViewer(isFullScreen: isFullScreen)
                     .transition(.opacity)
                     .zIndex(1)
@@ -79,10 +81,30 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
-            Button { library.chooseFolder() } label: {
-                Label("打开文件夹", systemImage: "folder")
+            Button { library.goBack() } label: {
+                Image(systemName: "chevron.left")
             }
-            .help("打开文件夹 (⌘O)")
+            .buttonStyle(.plain)
+            .font(.title3)
+            .disabled(!library.canGoBack)
+            .help("上一步")
+
+            Button { library.goForward() } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(.plain)
+            .font(.title3)
+            .disabled(!library.canGoForward)
+            .help("下一步")
+
+            // Reserve a constant title slot so different directory names never
+            // shift the trailing display, sort, and inspector controls.
+            Text(library.folderURL?.lastPathComponent ?? "")
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 220, alignment: .leading)
+
         }
         ToolbarItemGroup(placement: .primaryAction) {
             if library.isViewerPresented {
@@ -158,7 +180,10 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
         }
 
         func attach(to window: NSWindow) {
-            guard self.window !== window else { return }
+            if self.window === window {
+                alignTrailingToolbarItems(in: window.toolbar)
+                return
+            }
             detach()
             self.window = window
 
@@ -167,6 +192,10 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             // navigation, so the separator stays disabled after one setup.
             window.titlebarSeparatorStyle = .none
             window.toolbar?.showsBaselineSeparator = false
+            // The toolbar supplies the active directory name itself. Hide the
+            // native app-name title so "简图" is never shown alongside it.
+            window.titleVisibility = .hidden
+            alignTrailingToolbarItems(in: window.toolbar)
 
             let center = NotificationCenter.default
             willEnterObserver = center.addObserver(
@@ -193,6 +222,18 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
                     self?.isFullScreen.wrappedValue = currentlyFullScreen
                 }
             }
+        }
+
+        /// SwiftUI's toolbar groups do not automatically get a flexible gap
+        /// after a custom navigation title. Add the native flexible item so
+        /// the primary controls always stay flush with the trailing edge.
+        private func alignTrailingToolbarItems(in toolbar: NSToolbar?) {
+            guard let toolbar,
+                  toolbar.items.count > 3,
+                  !toolbar.items.contains(where: { $0.itemIdentifier == .flexibleSpace }) else {
+                return
+            }
+            toolbar.insertItem(withItemIdentifier: .flexibleSpace, at: 3)
         }
 
         func detach() {

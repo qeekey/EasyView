@@ -81,7 +81,10 @@ struct ImageViewer: View {
             KeyboardCapture(
                 onLeft: { library.selectPrevious() },
                 onRight: { library.selectNext() },
-                onSpace: { library.isViewerPresented = false },
+                onUp: { library.selectPrevious() },
+                onDown: { library.selectNext() },
+                // Space advances in either regular or full-screen viewer mode.
+                onSpace: { library.selectNext() },
                 onEscape: { library.isViewerPresented = false }
             )
             .frame(width: 0, height: 0)
@@ -211,30 +214,34 @@ private struct ViewerButtonStyle: ButtonStyle {
 private struct KeyboardCapture: NSViewRepresentable {
     let onLeft: () -> Void
     let onRight: () -> Void
+    let onUp: () -> Void
+    let onDown: () -> Void
     let onSpace: () -> Void
     let onEscape: () -> Void
 
     func makeNSView(context: Context) -> KeyView {
         let view = KeyView()
-        view.handlers = (onLeft, onRight, onSpace, onEscape)
+        view.handlers = (onLeft, onRight, onUp, onDown, onSpace, onEscape)
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return view
     }
 
     func updateNSView(_ view: KeyView, context: Context) {
-        view.handlers = (onLeft, onRight, onSpace, onEscape)
+        view.handlers = (onLeft, onRight, onUp, onDown, onSpace, onEscape)
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
     }
 
     final class KeyView: NSView {
-        var handlers: (() -> Void, () -> Void, () -> Void, () -> Void)?
+        var handlers: (() -> Void, () -> Void, () -> Void, () -> Void, () -> Void, () -> Void)?
         override var acceptsFirstResponder: Bool { true }
         override func keyDown(with event: NSEvent) {
             switch event.keyCode {
             case 123: handlers?.0()
             case 124: handlers?.1()
-            case 49: handlers?.2()
-            case 53: handlers?.3()
+            case 126: handlers?.2()
+            case 125: handlers?.3()
+            case 49: handlers?.4()
+            case 53: handlers?.5()
             default: super.keyDown(with: event)
             }
         }

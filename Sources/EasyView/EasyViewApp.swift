@@ -84,12 +84,19 @@ struct EasyViewApp: App {
                     .keyboardShortcut("o", modifiers: [.command, .shift])
             }
             CommandMenu("查看") {
-                Button("上一张") { library.selectPrevious() }
+                Button("上一张") { library.navigate(.left) }
                     .keyboardShortcut(.leftArrow, modifiers: [])
-                Button("下一张") { library.selectNext() }
+                Button("下一张") { library.navigate(.right) }
                     .keyboardShortcut(.rightArrow, modifiers: [])
+                Button("上一张（向上）") { library.navigate(.up) }
+                    .keyboardShortcut(.upArrow, modifiers: [])
+                Button("下一张（向下）") { library.navigate(.down) }
+                    .keyboardShortcut(.downArrow, modifiers: [])
                 Divider()
-                Button("进入/退出大图") { library.isViewerPresented.toggle() }
+                Button("预览选中图片") {
+                    guard library.selectedItem != nil else { return }
+                    library.isViewerPresented = true
+                }
                     .keyboardShortcut(.space, modifiers: [])
                 Button("显示简介") { library.showsInspector.toggle() }
                     .keyboardShortcut("i")

@@ -120,6 +120,16 @@ struct ThumbnailGridView: View {
                         .padding(18)
                     }
                     .background(Color(nsColor: .controlBackgroundColor))
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear { updateThumbnailColumnCount(for: proxy.size.width) }
+                                .onChange(of: proxy.size.width) { updateThumbnailColumnCount(for: $0) }
+                                .onChange(of: library.thumbnailSize) { _ in
+                                    updateThumbnailColumnCount(for: proxy.size.width)
+                                }
+                        }
+                    }
                 case .list:
                     ImageListView()
                 }
@@ -145,6 +155,21 @@ struct ThumbnailGridView: View {
             .background(.bar)
         }
         .padding(.top, isFullScreen ? 0 : 40)
+        .background {
+            BrowserKeyboardCapture(
+                onLeft: { library.navigate(.left); return true },
+                onRight: { library.navigate(.right); return true },
+                onUp: { library.navigate(.up); return true },
+                onDown: { library.navigate(.down); return true },
+                onSpace: {
+                    // The viewer has its own Space handler for next image.
+                    guard !library.isViewerPresented, library.selectedItem != nil else { return false }
+                    library.isViewerPresented = true
+                    return true
+                }
+            )
+            .frame(width: 0, height: 0)
+        }
     }
 
     private var emptyState: some View {
@@ -164,6 +189,12 @@ struct ThumbnailGridView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func updateThumbnailColumnCount(for width: CGFloat) {
+        let contentWidth = max(0, width - 36) // 18-point grid padding on each side.
+        let columns = Int((contentWidth + 14) / (library.thumbnailSize + 14))
+        library.setThumbnailColumnCount(columns)
     }
 }
 
@@ -512,5 +543,75 @@ struct PreviewImage: View {
         .task(id: url) {
             image = ThumbnailCache.shared.image(for: url, maxPixelSize: 700)
         }
+    }
+}
+
+/// Handles browsing shortcuts regardless of which grid or list subview owns
+/// focus. Text fields retain their normal input behavior.
+private struct BrowserKeyboardCapture: NSViewRepresentable {
+    typealias Handler = () -> Bool
+
+    let onLeft: Handler
+    let onRight: Handler
+    let onUp: Handler
+    let onDown: Handler
+    let onSpace: Handler
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.handlers = (onLeft, onRight, onUp, onDown, onSpace)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.handlers = (onLeft, onRight, onUp, onDown, onSpace)
+        DispatchQueue.main.async { context.coordinator.attach(to: view.window) }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator {
+        var handlers: (Handler, Handler, Handler, Handler, Handler)?
+        private weak var window: NSWindow?
+        private var monitor: Any?
+
+        func attach(to newWindow: NSWindow?) {
+            guard let newWindow, window !== newWindow else { return }
+            detach()
+            window = newWindow
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      let window = self.window,
+                      event.window === window,
+                      !(window.firstResponder is NSTextView),
+                      event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                      let handlers = self.handlers else {
+                    return event
+                }
+
+                let handled: Bool
+                switch event.keyCode {
+                case 123: handled = handlers.0()
+                case 124: handled = handlers.1()
+                case 126: handled = handlers.2()
+                case 125: handled = handlers.3()
+                case 49: handled = handlers.4()
+                default: return event
+                }
+                return handled ? nil : event
+            }
+        }
+
+        func detach() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            window = nil
+        }
+
+        deinit { detach() }
     }
 }

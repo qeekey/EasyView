@@ -48,6 +48,13 @@ enum LibraryViewMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ImageNavigationDirection {
+    case left
+    case right
+    case up
+    case down
+}
+
 @MainActor
 final class ImageLibrary: ObservableObject {
     @Published var folderURL: URL?
@@ -72,6 +79,7 @@ final class ImageLibrary: ObservableObject {
     @Published var showsInspector = false
     @Published var thumbnailSize: Double = 150
     @Published var viewMode: LibraryViewMode = .thumbnails
+    private var thumbnailColumnCount = 1
     @Published var showsThumbnailFileName: Bool = UserDefaults.standard.object(forKey: "showsThumbnailFileName") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showsThumbnailFileName, forKey: "showsThumbnailFileName") }
     }
@@ -262,6 +270,24 @@ final class ImageLibrary: ObservableObject {
     func selectNext() { moveSelection(by: 1) }
     func selectPrevious() { moveSelection(by: -1) }
 
+    /// Arrow-key navigation follows the current presentation: list and viewer
+    /// use a linear sequence, while the thumbnail grid follows visible cells.
+    func navigate(_ direction: ImageNavigationDirection) {
+        if isViewerPresented || viewMode == .list {
+            switch direction {
+            case .left, .up: selectPrevious()
+            case .right, .down: selectNext()
+            }
+            return
+        }
+
+        moveThumbnailSelection(direction)
+    }
+
+    func setThumbnailColumnCount(_ count: Int) {
+        thumbnailColumnCount = max(1, count)
+    }
+
     /// Moves the active image to the macOS Trash, then keeps the viewer on the
     /// following image (or the previous one when the deleted image was last).
     func moveSelectedItemToTrash() {
@@ -300,6 +326,29 @@ final class ImageLibrary: ObservableObject {
         guard !visible.isEmpty else { return }
         let current = visible.firstIndex { $0.url == selectedURL } ?? 0
         selectedURL = visible[(current + offset + visible.count) % visible.count].url
+    }
+
+    private func moveThumbnailSelection(_ direction: ImageNavigationDirection) {
+        let visible = filteredItems
+        guard !visible.isEmpty else { return }
+
+        let current = visible.firstIndex { $0.url == selectedURL } ?? 0
+        let columns = thumbnailColumnCount
+        let target: Int
+
+        switch direction {
+        case .left:
+            target = current.isMultiple(of: columns) ? current : current - 1
+        case .right:
+            let isLastInRow = (current + 1).isMultiple(of: columns)
+            target = isLastInRow || current + 1 == visible.count ? current : current + 1
+        case .up:
+            target = current >= columns ? current - columns : current
+        case .down:
+            target = current + columns < visible.count ? current + columns : current
+        }
+
+        selectedURL = visible[target].url
     }
 }
 

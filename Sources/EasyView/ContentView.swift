@@ -107,12 +107,13 @@ struct ContentView: View {
 
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            if library.isViewerPresented {
-                Button { library.isSlideshowPlaying.toggle() } label: {
-                    Image(systemName: library.isSlideshowPlaying ? "pause.fill" : "play.fill")
-                }
-                .help(library.isSlideshowPlaying ? "暂停自动播放" : "自动播放")
+            Button { library.isSlideshowPlaying.toggle() } label: {
+                Image(systemName: library.isSlideshowPlaying ? "pause.fill" : "play.fill")
             }
+            .help(library.isSlideshowPlaying ? "暂停自动播放" : "自动播放")
+            .opacity(library.isViewerPresented ? 1 : 0)
+            .disabled(!library.isViewerPresented)
+            .accessibilityHidden(!library.isViewerPresented)
 
             Picker("显示方式", selection: $library.viewMode) {
                 Label("缩略图", systemImage: "square.grid.2x2")

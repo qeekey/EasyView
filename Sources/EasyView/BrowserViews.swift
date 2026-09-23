@@ -203,19 +203,23 @@ struct ImageListView: View {
 
     var body: some View {
         GeometryReader { viewport in
+            let visibleWidths = columnWidths.filling(viewportWidth: viewport.size.width)
             ScrollViewReader { scrollProxy in
                 ScrollView([.horizontal, .vertical]) {
-                    VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Color.clear
                             .frame(height: 0)
                             .id("image-list-top")
-                        listHeader
+                        listHeader(nameWidth: Binding(
+                            get: { columnWidths.filling(viewportWidth: viewport.size.width).name },
+                            set: { columnWidths.name = $0 }
+                        ))
                         Divider()
-                        LazyVStack(spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(library.filteredItems.enumerated()), id: \.element.id) { index, item in
                                 ImageListRow(
                                     item: item,
-                                    columnWidths: columnWidths,
+                                    columnWidths: visibleWidths,
                                     hasAlternateBackground: index.isMultiple(of: 2) == false
                                 )
                                     .onTapGesture(count: 2) {
@@ -227,9 +231,10 @@ struct ImageListView: View {
                             }
                         }
                         .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(
-                        minWidth: max(columnWidths.contentWidth + 24, viewport.size.width),
+                        minWidth: max(visibleWidths.contentWidth + 24, viewport.size.width),
                         minHeight: viewport.size.height,
                         alignment: .topLeading
                     )
@@ -242,12 +247,9 @@ struct ImageListView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    private var listHeader: some View {
+    private func listHeader(nameWidth: Binding<CGFloat>) -> some View {
         HStack(spacing: 12) {
-            Color.clear
-                .frame(width: 44)
-                .overlay(alignment: .trailing) { ListColumnDivider(isHeader: true) }
-            ResizableColumnHeader("名称", width: $columnWidths.name, minimum: 120, alignment: .leading, sort: .name, currentSort: library.sort, ascending: library.ascending) {
+            ResizableColumnHeader("名称", width: nameWidth, minimum: 176, alignment: .leading, sort: .name, currentSort: library.sort, ascending: library.ascending) {
                 library.sort(by: .name)
             }
             ResizableColumnHeader("类型", width: $columnWidths.type, minimum: 54, alignment: .leading, sort: .type, currentSort: library.sort, ascending: library.ascending) {
@@ -256,7 +258,7 @@ struct ImageListView: View {
             ResizableColumnHeader("尺寸", width: $columnWidths.dimensions, minimum: 82, alignment: .leading, sort: .dimensions, currentSort: library.sort, ascending: library.ascending) {
                 library.sort(by: .dimensions)
             }
-            ResizableColumnHeader("大小", width: $columnWidths.size, minimum: 60, alignment: .trailing, sort: .size, currentSort: library.sort, ascending: library.ascending) {
+            ResizableColumnHeader("大小", width: $columnWidths.size, minimum: 60, alignment: .leading, sort: .size, currentSort: library.sort, ascending: library.ascending) {
                 library.sort(by: .size)
             }
             ResizableColumnHeader("修改日期", width: $columnWidths.modifiedAt, minimum: 110, alignment: .leading, sort: .date, currentSort: library.sort, ascending: library.ascending) {
@@ -266,6 +268,7 @@ struct ImageListView: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 30)
         .background(.bar)
     }
@@ -282,24 +285,27 @@ private struct ImageListRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Group {
-                if item.isDirectory {
-                    Image(systemName: "folder.fill")
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(Color.accentColor)
-                        .padding(8)
-                } else if let image {
-                    Image(nsImage: image).resizable().scaledToFit()
-                } else {
-                    ProgressView().controlSize(.mini)
+            HStack(spacing: 12) {
+                Group {
+                    if item.isDirectory {
+                        Image(systemName: "folder.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .foregroundStyle(Color.accentColor)
+                            .padding(8)
+                    } else if let image {
+                        Image(nsImage: image).resizable().scaledToFit()
+                    } else {
+                        ProgressView().controlSize(.mini)
+                    }
                 }
-            }
-            .frame(width: 44, height: 36)
+                .frame(width: 44, height: 36)
 
-            Text(item.name)
-                .lineLimit(1)
-                .frame(width: columnWidths.name, alignment: .leading)
+                Text(item.name)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(width: columnWidths.name, alignment: .leading)
             Text(item.fileExtension)
                 .frame(width: columnWidths.type, alignment: .leading)
             Text(item.dimensionsText)
@@ -312,6 +318,7 @@ private struct ImageListRow: View {
         }
         .font(.caption)
         .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 48)
         .background(
             isSelected
@@ -327,14 +334,20 @@ private struct ImageListRow: View {
 }
 
 private struct ListColumnWidths {
-    var name: CGFloat = 280
+    var name: CGFloat = 336
     var type: CGFloat = 70
     var dimensions: CGFloat = 104
     var size: CGFloat = 78
     var modifiedAt: CGFloat = 142
 
     var contentWidth: CGFloat {
-        44 + name + type + dimensions + size + modifiedAt + (12 * 5)
+        name + type + dimensions + size + modifiedAt + (12 * 4)
+    }
+
+    func filling(viewportWidth: CGFloat) -> Self {
+        var widths = self
+        widths.name = max(name, viewportWidth - 24 - (contentWidth - name))
+        return widths
     }
 }
 

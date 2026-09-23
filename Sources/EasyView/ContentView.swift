@@ -189,6 +189,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             }
             detach()
             self.window = window
+            window.contentMinSize = NSSize(width: 1020, height: 700)
 
             // macOS may restore a much wider window from the previous run,
             // overriding WindowGroup.defaultSize. Apply the launch size once.

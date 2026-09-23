@@ -69,6 +69,7 @@ struct EasyViewApp: App {
                 .environmentObject(library)
                 .frame(minWidth: 980, minHeight: 620)
         }
+        .defaultSize(width: 1020, height: 700)
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {

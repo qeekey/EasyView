@@ -167,6 +167,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
     @Binding var isFullScreen: Bool
 
     final class Coordinator {
+        private static var didApplyInitialWindowSize = false
         private weak var window: NSWindow?
         private var willEnterObserver: NSObjectProtocol?
         private var didExitObserver: NSObjectProtocol?
@@ -182,20 +183,26 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
 
         func attach(to window: NSWindow) {
             if self.window === window {
+                hideNativeWindowTitle(in: window)
                 alignTrailingToolbarItems(in: window.toolbar)
                 return
             }
             detach()
             self.window = window
 
+            // macOS may restore a much wider window from the previous run,
+            // overriding WindowGroup.defaultSize. Apply the launch size once.
+            if !Self.didApplyInitialWindowSize && !window.styleMask.contains(.fullScreen) {
+                Self.didApplyInitialWindowSize = true
+                window.setContentSize(NSSize(width: 1020, height: 700))
+            }
+
             // This is a permanent window policy. Unlike NSToolbar, NSWindow is
             // not recreated when SwiftUI refreshes toolbar items during image
             // navigation, so the separator stays disabled after one setup.
             window.titlebarSeparatorStyle = .none
             window.toolbar?.showsBaselineSeparator = false
-            // The toolbar supplies the active directory name itself. Hide the
-            // native app-name title so "简图" is never shown alongside it.
-            window.titleVisibility = .hidden
+            hideNativeWindowTitle(in: window)
             alignTrailingToolbarItems(in: window.toolbar)
 
             let center = NotificationCenter.default
@@ -223,6 +230,14 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
                     self?.isFullScreen.wrappedValue = currentlyFullScreen
                 }
             }
+        }
+
+        private func hideNativeWindowTitle(in window: NSWindow) {
+            // SwiftUI supplies the app name as the WindowGroup's native title.
+            // Clear it as well as hiding it so it cannot reappear in the
+            // titlebar when the toolbar or window mode changes.
+            window.titleVisibility = .hidden
+            if !window.title.isEmpty { window.title = "" }
         }
 
         /// SwiftUI's toolbar groups do not automatically get a flexible gap

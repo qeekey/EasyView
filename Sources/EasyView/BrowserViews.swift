@@ -11,6 +11,11 @@ struct SidebarView: View {
                 SidebarButton(title: "图片", icon: "photo.on.rectangle", url: FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first)
                 SidebarButton(title: "桌面", icon: "desktopcomputer", url: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first)
                 SidebarButton(title: "下载", icon: "arrow.down.circle", url: FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first)
+                SidebarButton(
+                    title: FileManager.default.homeDirectoryForCurrentUser.lastPathComponent,
+                    icon: "house",
+                    url: FileManager.default.homeDirectoryForCurrentUser
+                )
             }
             Section("当前") {
                 if let folder = library.folderURL {

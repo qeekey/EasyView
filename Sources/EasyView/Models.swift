@@ -351,7 +351,8 @@ final class ImageLibrary: ObservableObject {
     }
 
     /// Moves the active image to the macOS Trash, then keeps the viewer on the
-    /// following image (or the previous one when the deleted image was last).
+    /// next image, skipping folders. If no later image remains, use the
+    /// previous image; close the viewer only when no images remain.
     func moveSelectedItemToTrash() {
         guard let selectedURL,
               let currentIndex = filteredItems.firstIndex(where: { $0.url == selectedURL }) else {
@@ -363,12 +364,13 @@ final class ImageLibrary: ObservableObject {
             items.removeAll { $0.url == selectedURL }
 
             let remainingItems = filteredItems
-            guard !remainingItems.isEmpty else {
+            guard let nextImage = remainingItems.dropFirst(currentIndex).first(where: { !$0.isDirectory })
+                ?? remainingItems.prefix(currentIndex).last(where: { !$0.isDirectory }) else {
                 self.selectedURL = nil
                 isViewerPresented = false
                 return
             }
-            self.selectedURL = remainingItems[min(currentIndex, remainingItems.count - 1)].url
+            self.selectedURL = nextImage.url
         } catch {
             errorMessage = "无法移到废纸篓：\(error.localizedDescription)"
         }

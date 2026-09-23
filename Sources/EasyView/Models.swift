@@ -14,8 +14,8 @@ struct ImageItem: Identifiable, Hashable {
     var id: URL { url }
     var name: String { url.lastPathComponent }
     var fileExtension: String { isDirectory ? "文件夹" : url.pathExtension.uppercased() }
-    var dimensionsText: String { width > 0 ? "\(width) × \(height)" : "—" }
-    var sizeText: String { isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file) }
+    var dimensionsText: String { isDirectory ? "--" : (width > 0 ? "\(width) × \(height)" : "—") }
+    var sizeText: String { isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file) }
 
     init(url: URL) {
         self.url = url
@@ -126,20 +126,22 @@ final class ImageLibrary: ObservableObject {
             $0.name.localizedCaseInsensitiveContains(searchText)
         }
         filteredItems = searched.sorted { first, second in
-            if first.isDirectory != second.isDirectory { return first.isDirectory }
             let lhs = ascending ? first : second
             let rhs = ascending ? second : first
             switch sort {
             case .name:
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             case .type:
-                return lhs.fileExtension.localizedStandardCompare(rhs.fileExtension) == .orderedAscending
+                let typeOrder = lhs.fileExtension.localizedCaseInsensitiveCompare(rhs.fileExtension)
+                return typeOrder == .orderedSame
+                    ? lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                    : typeOrder == .orderedAscending
             case .date:
                 return (lhs.modifiedAt ?? .distantPast) < (rhs.modifiedAt ?? .distantPast)
             case .size:
-                return lhs.fileSize < rhs.fileSize
+                return (lhs.isDirectory ? 0 : lhs.fileSize) < (rhs.isDirectory ? 0 : rhs.fileSize)
             case .dimensions:
-                return lhs.width * lhs.height < rhs.width * rhs.height
+                return (lhs.isDirectory ? 0 : lhs.width * lhs.height) < (rhs.isDirectory ? 0 : rhs.width * rhs.height)
             }
         }
     }

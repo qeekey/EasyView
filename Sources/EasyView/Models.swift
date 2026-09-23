@@ -208,7 +208,8 @@ final class ImageLibrary: ObservableObject {
                     self.items = loaded
                     self.selectedURL = requestedSelection.flatMap { requestedURL in
                         loaded.first { $0.url.standardizedFileURL == requestedURL.standardizedFileURL }?.url
-                    } ?? loaded.first?.url
+                    } ?? self.filteredItems.first(where: { !$0.isDirectory })?.url
+                        ?? self.filteredItems.first?.url
                     self.isLoading = false
                     if presentingViewer {
                         self.isViewerPresented = self.selectedURL != nil
@@ -328,11 +329,7 @@ final class ImageLibrary: ObservableObject {
     }
 
     func select(_ item: ImageItem) {
-        if item.isDirectory {
-            open(item)
-        } else {
-            selectedURL = item.url
-        }
+        selectedURL = item.url
     }
 
     /// Arrow-key navigation follows the current presentation: list and viewer

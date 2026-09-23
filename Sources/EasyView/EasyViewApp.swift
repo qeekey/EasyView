@@ -35,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         panel.title = "关于简图"
         panel.isReleasedWhenClosed = false
+        let version = Bundle.main.infoDictionary?["EasyViewGitTag"] as? String
+            ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            ?? "未标记"
         panel.contentView = NSHostingView(rootView:
             VStack(spacing: 10) {
                 Image(nsImage: NSApp.applicationIconImage)
@@ -43,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .frame(width: 72, height: 72)
                 Text("简图")
                     .font(.title2.weight(.semibold))
-                Text("版本 0.1.0")
+                Text("版本 \(version)")
                     .font(.body)
                 Text("版权所有 © 2026 qeekey")
                     .font(.footnote)

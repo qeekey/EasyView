@@ -110,7 +110,7 @@ struct ThumbnailGridView: View {
                 switch library.viewMode {
                 case .thumbnails:
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: library.thumbnailSize), spacing: 14)], spacing: 18) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: library.thumbnailSize), spacing: 8)], spacing: 10) {
                             ForEach(library.filteredItems) { item in
                                 ThumbnailCell(item: item, size: library.thumbnailSize)
                                     .onTapGesture(count: 2) {
@@ -197,7 +197,7 @@ struct ThumbnailGridView: View {
 
     private func updateThumbnailColumnCount(for width: CGFloat) {
         let contentWidth = max(0, width - 36) // 18-point grid padding on each side.
-        let columns = Int((contentWidth + 14) / (library.thumbnailSize + 14))
+        let columns = Int((contentWidth + 8) / (library.thumbnailSize + 8))
         library.setThumbnailColumnCount(columns)
     }
 }
@@ -461,7 +461,7 @@ struct ThumbnailCell: View {
                     .fill(Color(nsColor: .windowBackgroundColor))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.white.opacity(0.5))
+                            .fill(Color.white.opacity(0.85))
                     }
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                 RoundedRectangle(cornerRadius: 8)

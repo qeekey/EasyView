@@ -216,6 +216,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
         private weak var window: NSWindow?
         private var willEnterObserver: NSObjectProtocol?
         private var didExitObserver: NSObjectProtocol?
+        private var resizeObserver: NSObjectProtocol?
         private var isFullScreen: Binding<Bool>
         private var isSidebarVisible: Binding<Bool>
         private var sidebarAccessory: NSTitlebarAccessoryViewController?
@@ -231,13 +232,14 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             self.isFullScreen = isFullScreen
             self.isSidebarVisible = isSidebarVisible
             updateSidebarButton()
+            if let window { updateSidebarAccessoryVisibility(in: window) }
         }
 
         func attach(to window: NSWindow) {
             if self.window === window {
                 hideNativeWindowTitle(in: window)
                 installSidebarAccessory(in: window)
-                sidebarAccessory?.isHidden = isFullScreen.wrappedValue
+                updateSidebarAccessoryVisibility(in: window)
                 alignTrailingToolbarItems(in: window.toolbar)
                 return
             }
@@ -259,6 +261,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             window.toolbar?.showsBaselineSeparator = false
             hideNativeWindowTitle(in: window)
             installSidebarAccessory(in: window)
+            updateSidebarAccessoryVisibility(in: window)
             alignTrailingToolbarItems(in: window.toolbar)
 
             let center = NotificationCenter.default
@@ -268,7 +271,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
                 queue: .main
             ) { [weak self, weak window] _ in
                 self?.isFullScreen.wrappedValue = true
-                self?.sidebarAccessory?.isHidden = true
+                if let window { self?.updateSidebarAccessoryVisibility(in: window) }
                 window?.toolbar?.isVisible = false
             }
             didExitObserver = center.addObserver(
@@ -277,13 +280,27 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
                 queue: .main
             ) { [weak self, weak window] _ in
                 window?.toolbar?.isVisible = true
-                self?.sidebarAccessory?.isHidden = false
                 self?.isFullScreen.wrappedValue = false
+                if let window { self?.updateSidebarAccessoryVisibility(in: window) }
+                DispatchQueue.main.async { [weak self, weak window] in
+                    if let window { self?.updateSidebarAccessoryVisibility(in: window) }
+                }
+            }
+            resizeObserver = center.addObserver(
+                forName: NSWindow.didResizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self, weak window] _ in
+                if let window { self?.updateSidebarAccessoryVisibility(in: window) }
+                // AppKit can send didResize before its zoomed flag changes.
+                DispatchQueue.main.async { [weak self, weak window] in
+                    if let window { self?.updateSidebarAccessoryVisibility(in: window) }
+                }
             }
 
             let currentlyFullScreen = window.styleMask.contains(.fullScreen)
             window.toolbar?.isVisible = !currentlyFullScreen
-            sidebarAccessory?.isHidden = currentlyFullScreen
+            updateSidebarAccessoryVisibility(in: window)
             if isFullScreen.wrappedValue != currentlyFullScreen {
                 DispatchQueue.main.async { [weak self] in
                     self?.isFullScreen.wrappedValue = currentlyFullScreen
@@ -335,6 +352,29 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             sidebarButton?.setAccessibilityLabel(label)
         }
 
+        private func updateSidebarAccessoryVisibility(in window: NSWindow) {
+            let shouldHide = isFullScreen.wrappedValue
+                || window.styleMask.contains(.fullScreen)
+                || window.isZoomed
+            guard let sidebarAccessory else { return }
+
+            // A left titlebar accessory's `isHidden` can leave its hosted
+            // button visible when AppKit rebuilds the titlebar. Remove the
+            // accessory from the window while maximized, retaining its view
+            // controller so restoring the window does not recreate the button.
+            sidebarButton?.isHidden = shouldHide
+            sidebarAccessory.view.isHidden = shouldHide
+            sidebarAccessory.isHidden = shouldHide
+            let index = window.titlebarAccessoryViewControllers.firstIndex {
+                $0 === sidebarAccessory
+            }
+            if shouldHide, let index {
+                window.removeTitlebarAccessoryViewController(at: index)
+            } else if !shouldHide, index == nil {
+                window.addTitlebarAccessoryViewController(sidebarAccessory)
+            }
+        }
+
         @objc private func toggleSidebar(_ sender: Any?) {
             isSidebarVisible.wrappedValue.toggle()
             updateSidebarButton()
@@ -356,6 +396,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             let center = NotificationCenter.default
             if let willEnterObserver { center.removeObserver(willEnterObserver) }
             if let didExitObserver { center.removeObserver(didExitObserver) }
+            if let resizeObserver { center.removeObserver(resizeObserver) }
             if let window,
                let sidebarAccessory,
                let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === sidebarAccessory }) {
@@ -363,6 +404,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             }
             willEnterObserver = nil
             didExitObserver = nil
+            resizeObserver = nil
             sidebarAccessory = nil
             sidebarButton = nil
             window = nil

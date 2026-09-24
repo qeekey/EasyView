@@ -1,8 +1,10 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var aboutPanel: NSPanel?
+    private let appUpdater = AppUpdater()
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -22,42 +24,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showAboutPanel() {
         if let aboutPanel {
+            Task { await appUpdater.checkForUpdates() }
             aboutPanel.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 246),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 292),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         panel.title = "关于简图"
         panel.isReleasedWhenClosed = false
-        let version = Bundle.main.infoDictionary?["EasyViewGitTag"] as? String
-            ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-            ?? "未标记"
-        panel.contentView = NSHostingView(rootView:
-            VStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 72, height: 72)
-                Text("简图")
-                    .font(.title2.weight(.semibold))
-                Text("版本 \(version)")
-                    .font(.body)
-                Text("版权所有 © 2026 qeekey")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        )
+        panel.contentView = NSHostingView(rootView: AboutPanelView(updater: appUpdater))
         aboutPanel = panel
         panel.center()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        Task { await appUpdater.checkForUpdates() }
     }
 }
 

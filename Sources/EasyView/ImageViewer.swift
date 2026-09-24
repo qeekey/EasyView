@@ -23,16 +23,20 @@ struct ImageViewer: View {
             if let image {
                 GeometryReader { geometry in
                     let viewport = CGSize(
-                        width: max(1, geometry.size.width - 120),
-                        height: max(1, geometry.size.height - 150)
+                        width: max(1, geometry.size.width - (isFullScreen ? 0 : 120)),
+                        height: max(1, geometry.size.height - (isFullScreen ? 0 : 150))
                     )
+                    let isQuarterTurn = Int(abs(rotation).truncatingRemainder(dividingBy: 180)) == 90
+                    let imageLayout = isQuarterTurn
+                        ? CGSize(width: viewport.height, height: viewport.width)
+                        : viewport
                     let panLimit = panLimit(for: image, in: viewport)
 
                     ZStack {
                         Image(nsImage: image)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: viewport.width, height: viewport.height)
+                            .frame(width: imageLayout.width, height: imageLayout.height)
                             .rotationEffect(.degrees(rotation))
                             .scaleEffect(zoom)
                             .offset(panOffset)
@@ -44,7 +48,7 @@ struct ImageViewer: View {
                     .contentShape(Rectangle())
                     .position(
                         x: geometry.size.width / 2,
-                        y: 60 + viewport.height / 2
+                        y: isFullScreen ? geometry.size.height / 2 : 60 + viewport.height / 2
                     )
                     .gesture(
                         MagnificationGesture()
@@ -73,11 +77,14 @@ struct ImageViewer: View {
                         panOffset = clampedOffset(panOffset, limit: panLimit)
                     }
                 }
+                .ignoresSafeArea(edges: isFullScreen ? .all : [])
             } else {
                 ProgressView().controlSize(.large).tint(.white)
             }
 
-            viewerControls
+            if !isFullScreen {
+                viewerControls
+            }
             KeyboardCapture(
                 onLeft: { library.selectPrevious() },
                 onRight: { library.selectNext() },
@@ -85,7 +92,13 @@ struct ImageViewer: View {
                 onDown: { library.selectNext() },
                 // Space advances in either regular or full-screen viewer mode.
                 onSpace: { library.selectNext() },
-                onEscape: { library.isViewerPresented = false }
+                onEscape: {
+                    if isFullScreen {
+                        NSApp.keyWindow?.toggleFullScreen(nil)
+                    } else {
+                        library.isViewerPresented = false
+                    }
+                }
             )
             .frame(width: 0, height: 0)
         }
@@ -94,6 +107,12 @@ struct ImageViewer: View {
             zoom = 1
             rotation = 0
             panOffset = .zero
+        }
+        .onChange(of: isFullScreen) { fullScreen in
+            if fullScreen {
+                zoom = 1
+                panOffset = .zero
+            }
         }
         .task(id: library.isSlideshowPlaying ? library.slideshowInterval : 0) {
             guard library.isSlideshowPlaying else { return }
@@ -179,12 +198,16 @@ struct ImageViewer: View {
     private func panLimit(for image: NSImage, in viewport: CGSize) -> CGSize {
         guard image.size.width > 0, image.size.height > 0 else { return .zero }
 
-        let fitScale = min(viewport.width / image.size.width, viewport.height / image.size.height)
+        let isQuarterTurn = Int(abs(rotation).truncatingRemainder(dividingBy: 180)) == 90
+        let fitBounds = isQuarterTurn
+            ? CGSize(width: viewport.height, height: viewport.width)
+            : viewport
+        let fitScale = min(fitBounds.width / image.size.width, fitBounds.height / image.size.height)
         var displayedSize = CGSize(
             width: image.size.width * fitScale * zoom,
             height: image.size.height * fitScale * zoom
         )
-        if Int(abs(rotation).truncatingRemainder(dividingBy: 180)) == 90 {
+        if isQuarterTurn {
             displayedSize = CGSize(width: displayedSize.height, height: displayedSize.width)
         }
         return CGSize(

@@ -452,12 +452,17 @@ struct ThumbnailCell: View {
     @State private var image: NSImage?
 
     var isSelected: Bool { library.selectedURL == item.url }
+    private var placeholderSide: Double { max(82, size * 0.72) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(0.5))
+                    }
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.black.opacity(isSelected ? 0.09 : 0))
@@ -474,13 +479,17 @@ struct ThumbnailCell: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            .frame(height: max(82, size * 0.72))
+            .frame(width: placeholderSide, height: placeholderSide)
+            .frame(maxWidth: .infinity, alignment: .center)
 
             if library.showsThumbnailFileName {
                 Text(item.name)
                     .font(.caption.weight(isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                    .frame(width: placeholderSide)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
             }
         }
         .contentShape(Rectangle())

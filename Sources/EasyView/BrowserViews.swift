@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SidebarView: View {
     @EnvironmentObject private var library: ImageLibrary
-    let isFullScreen: Bool
 
     var body: some View {
         List {
@@ -39,12 +38,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // A NavigationSplitView sidebar intentionally extends beneath the
-            // unified macOS title bar. Reserve that area so the first section
-            // and directory rows are never hidden behind the toolbar.
-            Color.clear.frame(height: isFullScreen ? 0 : 40)
-        }
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Image(systemName: "photo")
@@ -77,7 +70,6 @@ struct SidebarView: View {
 
 struct ThumbnailGridView: View {
     @EnvironmentObject private var library: ImageLibrary
-    let isFullScreen: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -158,7 +150,6 @@ struct ThumbnailGridView: View {
             .frame(height: 30)
             .background(.bar)
         }
-        .padding(.top, isFullScreen ? 0 : 40)
         .background {
             BrowserKeyboardCapture(
                 onLeft: { library.navigate(.left); return true },

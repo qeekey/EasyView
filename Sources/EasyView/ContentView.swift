@@ -6,13 +6,13 @@ struct ContentView: View {
     @EnvironmentObject private var library: ImageLibrary
     @State private var isDropTarget = false
     @State private var isFullScreen = false
+    @State private var isSidebarVisible = true
 
     var body: some View {
         ZStack {
-            // In full-screen viewer mode the native NavigationSplitView would
-            // extend its sidebar divider into the temporary title bar shown
-            // when the pointer reaches the top edge. Remove that split view
-            // only for this state so the divider cannot appear there.
+            // In full-screen viewer mode the split view divider would extend
+            // into the temporary title bar shown at the top edge. Remove the
+            // browser split view only in this state so the divider stays out.
             if !(library.isViewerPresented && isFullScreen) {
                 browser
             }
@@ -27,7 +27,10 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.16), value: library.isViewerPresented)
         .toolbar { toolbar }
-        .background(WindowToolbarVisibilitySync(isFullScreen: $isFullScreen))
+        .background(WindowToolbarVisibilitySync(
+            isFullScreen: $isFullScreen,
+            isSidebarVisible: $isSidebarVisible
+        ))
         .onDrop(of: [.fileURL], isTargeted: $isDropTarget, perform: acceptDrop)
         .onOpenURL { url in
             var isDirectory: ObjCBool = false
@@ -57,13 +60,7 @@ struct ContentView: View {
 
     private var browser: some View {
         ZStack(alignment: .trailing) {
-            NavigationSplitView {
-                SidebarView(isFullScreen: isFullScreen)
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
-            } detail: {
-                ThumbnailGridView(isFullScreen: isFullScreen)
-                    .navigationSplitViewColumnWidth(min: 480, ideal: 760)
-            }
+            PersistentSidebarSplitView(isSidebarVisible: $isSidebarVisible)
 
             if library.showsInspector {
                 InspectorView()
@@ -161,29 +158,86 @@ struct ContentView: View {
     }
 }
 
+/// Keeps the two hosted SwiftUI columns alive while AppKit collapses and
+/// expands the sidebar item. Unlike NavigationSplitView, this does not remove
+/// and recreate the sidebar's List when its toolbar toggle is used.
+private struct PersistentSidebarSplitView: NSViewControllerRepresentable {
+    @EnvironmentObject private var library: ImageLibrary
+    @Binding var isSidebarVisible: Bool
+
+    final class Coordinator {
+        var sidebarItem: NSSplitViewItem?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSViewController(context: Context) -> NSSplitViewController {
+        let controller = NSSplitViewController()
+        controller.splitView.isVertical = true
+        controller.splitView.dividerStyle = .thin
+
+        let sidebarHost = NSHostingController(
+            rootView: AnyView(SidebarView().environmentObject(library))
+        )
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarHost)
+        sidebarItem.minimumThickness = 180
+        sidebarItem.maximumThickness = 260
+        sidebarItem.canCollapse = true
+
+        let detailHost = NSHostingController(
+            rootView: AnyView(ThumbnailGridView().environmentObject(library))
+        )
+        let detailItem = NSSplitViewItem(viewController: detailHost)
+        detailItem.minimumThickness = 480
+
+        controller.addSplitViewItem(sidebarItem)
+        controller.addSplitViewItem(detailItem)
+        context.coordinator.sidebarItem = sidebarItem
+        sidebarItem.isCollapsed = !isSidebarVisible
+        return controller
+    }
+
+    func updateNSViewController(_ controller: NSSplitViewController, context: Context) {
+        let shouldCollapse = !isSidebarVisible
+        if context.coordinator.sidebarItem?.isCollapsed != shouldCollapse {
+            context.coordinator.sidebarItem?.isCollapsed = shouldCollapse
+        }
+    }
+}
+
 /// Keeps the app toolbar and the native window controls behaving as one unit:
 /// both disappear in full screen and both return after leaving full screen.
 private struct WindowToolbarVisibilitySync: NSViewRepresentable {
     @Binding var isFullScreen: Bool
+    @Binding var isSidebarVisible: Bool
 
-    final class Coordinator {
+    final class Coordinator: NSObject {
         private static var didApplyInitialWindowSize = false
         private weak var window: NSWindow?
         private var willEnterObserver: NSObjectProtocol?
         private var didExitObserver: NSObjectProtocol?
         private var isFullScreen: Binding<Bool>
+        private var isSidebarVisible: Binding<Bool>
+        private var sidebarAccessory: NSTitlebarAccessoryViewController?
+        private var sidebarButton: NSButton?
 
-        init(isFullScreen: Binding<Bool>) {
+        init(isFullScreen: Binding<Bool>, isSidebarVisible: Binding<Bool>) {
             self.isFullScreen = isFullScreen
+            self.isSidebarVisible = isSidebarVisible
+            super.init()
         }
 
-        func update(isFullScreen: Binding<Bool>) {
+        func update(isFullScreen: Binding<Bool>, isSidebarVisible: Binding<Bool>) {
             self.isFullScreen = isFullScreen
+            self.isSidebarVisible = isSidebarVisible
+            updateSidebarButton()
         }
 
         func attach(to window: NSWindow) {
             if self.window === window {
                 hideNativeWindowTitle(in: window)
+                installSidebarAccessory(in: window)
+                sidebarAccessory?.isHidden = isFullScreen.wrappedValue
                 alignTrailingToolbarItems(in: window.toolbar)
                 return
             }
@@ -204,6 +258,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             window.titlebarSeparatorStyle = .none
             window.toolbar?.showsBaselineSeparator = false
             hideNativeWindowTitle(in: window)
+            installSidebarAccessory(in: window)
             alignTrailingToolbarItems(in: window.toolbar)
 
             let center = NotificationCenter.default
@@ -213,6 +268,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
                 queue: .main
             ) { [weak self, weak window] _ in
                 self?.isFullScreen.wrappedValue = true
+                self?.sidebarAccessory?.isHidden = true
                 window?.toolbar?.isVisible = false
             }
             didExitObserver = center.addObserver(
@@ -221,11 +277,13 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
                 queue: .main
             ) { [weak self, weak window] _ in
                 window?.toolbar?.isVisible = true
+                self?.sidebarAccessory?.isHidden = false
                 self?.isFullScreen.wrappedValue = false
             }
 
             let currentlyFullScreen = window.styleMask.contains(.fullScreen)
             window.toolbar?.isVisible = !currentlyFullScreen
+            sidebarAccessory?.isHidden = currentlyFullScreen
             if isFullScreen.wrappedValue != currentlyFullScreen {
                 DispatchQueue.main.async { [weak self] in
                     self?.isFullScreen.wrappedValue = currentlyFullScreen
@@ -239,6 +297,47 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             // titlebar when the toolbar or window mode changes.
             window.titleVisibility = .hidden
             if !window.title.isEmpty { window.title = "" }
+        }
+
+        private func installSidebarAccessory(in window: NSWindow) {
+            guard sidebarAccessory == nil else { return }
+
+            let button = NSButton(frame: .zero)
+            button.isBordered = false
+            button.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "侧边栏")
+            button.imagePosition = .imageOnly
+            button.target = self
+            button.action = #selector(toggleSidebar(_:))
+            button.focusRingType = .none
+
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+            button.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                button.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                button.widthAnchor.constraint(equalToConstant: 28),
+                button.heightAnchor.constraint(equalToConstant: 28)
+            ])
+
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.view = container
+            accessory.layoutAttribute = .left
+            window.addTitlebarAccessoryViewController(accessory)
+            sidebarAccessory = accessory
+            sidebarButton = button
+            updateSidebarButton()
+        }
+
+        private func updateSidebarButton() {
+            let label = isSidebarVisible.wrappedValue ? "隐藏边栏" : "显示边栏"
+            sidebarButton?.toolTip = label
+            sidebarButton?.setAccessibilityLabel(label)
+        }
+
+        @objc private func toggleSidebar(_ sender: Any?) {
+            isSidebarVisible.wrappedValue.toggle()
+            updateSidebarButton()
         }
 
         /// SwiftUI's toolbar groups do not automatically get a flexible gap
@@ -257,8 +356,15 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
             let center = NotificationCenter.default
             if let willEnterObserver { center.removeObserver(willEnterObserver) }
             if let didExitObserver { center.removeObserver(didExitObserver) }
+            if let window,
+               let sidebarAccessory,
+               let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === sidebarAccessory }) {
+                window.removeTitlebarAccessoryViewController(at: index)
+            }
             willEnterObserver = nil
             didExitObserver = nil
+            sidebarAccessory = nil
+            sidebarButton = nil
             window = nil
         }
 
@@ -268,7 +374,7 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isFullScreen: $isFullScreen)
+        Coordinator(isFullScreen: $isFullScreen, isSidebarVisible: $isSidebarVisible)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -282,7 +388,10 @@ private struct WindowToolbarVisibilitySync: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.update(isFullScreen: $isFullScreen)
+        context.coordinator.update(
+            isFullScreen: $isFullScreen,
+            isSidebarVisible: $isSidebarVisible
+        )
         DispatchQueue.main.async {
             if let window = view.window {
                 context.coordinator.attach(to: window)
